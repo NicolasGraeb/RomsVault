@@ -1,0 +1,10 @@
+# Optional host access for running Go and Vite outside Docker.
+services:
+  postgres:
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5433}:5432"]
+  redis:
+    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]
+  seaweedfs:
+    ports: ["127.0.0.1:${S3_PORT:-8333}:8333"]
+  backend:
+    ports: ["127.0.0.1:${API_PORT:-8001}:8001"]

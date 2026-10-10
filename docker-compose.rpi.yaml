@@ -1,0 +1,35 @@
+# Raspberry Pi 5 / 4 GB, 64-bit OS. Native ARM64 images are selected automatically.
+# Total container memory limits: 2368 MiB, leaving room for the host and Docker.
+services:
+  postgres:
+    mem_limit: 512m
+    mem_reservation: 128m
+    shm_size: 128m
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "effective_cache_size=256MB", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=32MB", "-c", "max_connections=30", "-c", "max_parallel_workers_per_gather=0"]
+  redis:
+    mem_limit: 192m
+    mem_reservation: 32m
+    environment:
+      REDIS_MAXMEMORY: 64mb
+  seaweedfs:
+    mem_limit: 1024m
+    mem_reservation: 256m
+    environment:
+      GOMEMLIMIT: 768MiB
+      GOMAXPROCS: "2"
+      SEAWEED_VOLUME_INDEX: leveldb
+      SEAWEED_UPLOAD_LIMIT: "1"
+  backend:
+    mem_limit: 512m
+    mem_reservation: 64m
+    environment:
+      GOMEMLIMIT: 320MiB
+      GOMAXPROCS: "2"
+      MAX_CONCURRENT_UPLOADS: "1"
+      DATABASE_POOL_MAX_CONNS: "6"
+  frontend:
+    mem_limit: 128m
+    mem_reservation: 16m
+    environment:
+      NGINX_WORKER_PROCESSES: "2"
+    command: ["sh", "-c", 'sed -i "s/worker_processes  auto;/worker_processes  $${NGINX_WORKER_PROCESSES};/" /etc/nginx/nginx.conf && exec nginx -g "daemon off;"']

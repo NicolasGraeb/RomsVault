@@ -1,0 +1,24 @@
+# Optional bind mounts. DATA_DIR must be an existing directory on the mounted disk.
+# Compose merges volumes by container target, replacing the default named volumes.
+services:
+  postgres:
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:?Set DATA_DIR to your disk directory}/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+  redis:
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:?Set DATA_DIR to your disk directory}/redis
+        target: /data
+        bind:
+          create_host_path: false
+  seaweedfs:
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:?Set DATA_DIR to your disk directory}/seaweedfs
+        target: /data
+        bind:
+          create_host_path: false

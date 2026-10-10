@@ -1,0 +1,121 @@
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    logging: *logging
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-romvault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/setup.ps1 or configure .env}
+      POSTGRES_DB: ${POSTGRES_DB:-romvault}
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:-/mnt/storage}/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: true
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    logging: *logging
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+    command: ["sh", "-c", 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD" --maxmemory "$$REDIS_MAXMEMORY" --maxmemory-policy noeviction']
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:-/mnt/storage}/redis
+        target: /data
+        bind:
+          create_host_path: true
+
+    healthcheck:
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  seaweedfs:
+    logging: *logging
+    image: ${SEAWEED_IMAGE:-chrislusf/seaweedfs:4.17}
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/seaweedfs/entrypoint.sh"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-romvault}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:-romvault}
+      SEAWEED_VOLUME_INDEX: ${SEAWEED_VOLUME_INDEX:-memory}
+      SEAWEED_UPLOAD_LIMIT: ${MAX_CONCURRENT_UPLOADS:-2}
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:-/mnt/storage}/seaweedfs
+        target: /data
+        bind:
+          create_host_path: true
+      - ./infra/seaweed-entrypoint.sh:/etc/seaweedfs/entrypoint.sh:ro
+      - ./infra/filer.toml:/etc/seaweedfs/filer.toml:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9333/cluster/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  backend:
+    logging: *logging
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      HTTP_PORT: 8001
+      DATABASE_URL: postgres://${POSTGRES_USER:-romvault}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-romvault}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_BUCKET: ${S3_BUCKET:-romvault}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-romvault}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+      MAX_UPLOAD_GB: ${MAX_UPLOAD_GB:-50}
+      MAX_CONCURRENT_UPLOADS: ${MAX_CONCURRENT_UPLOADS:-2}
+      DATABASE_POOL_MAX_CONNS: ${DATABASE_POOL_MAX_CONNS:-10}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      TRUST_PROXY: "true"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      seaweedfs: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  frontend:
+    logging: *logging
+    build: ./frontend/romvault
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:80"
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
